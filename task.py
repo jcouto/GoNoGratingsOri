@@ -1,5 +1,94 @@
 from btss.tasks import *
 
+class TaskStimulus(object):
+    def __init__(self,
+                 win,
+                 tex = 'sin',
+                 mask = 'circle',
+                 contrast = 1,
+                 pos=[0,0],
+                 size=40,
+                 sf = 0.2,
+                 tf = 0,
+                 go_ori = [90],
+                 nogo_ori = [0],
+                 units = 'deg',
+                 rand_phase = True,
+                 **kwargs):
+            '''This class is to abstract the stimulus. 
+    Use it to build a go or no-go stim.
+        '''
+            super(TaskStimulus,self).__init__()
+            self.win = win
+            self.tex = tex
+            self.mask = mask
+            self.pos = pos
+            self.size = size
+            self.sf = sf
+            self.tf = tf
+            self.units = units
+            self.contrast = contrast
+            self.circle = GratingStim(win = win,
+                                      tex = tex,
+                                      mask = mask,
+                                      pos=pos,
+                                      size=size,
+                                      sf = sf,
+                                      ori = go_ori[0],
+                                      units = units)
+            self.go_ori = go_ori
+            self.nogo_ori = nogo_ori
+        
+    def trial_init(self,
+                   is_rewarded,
+                   contrast = None,
+                   tex=None,
+                   mask = None,
+                   pos = None,
+                   size = None,
+                   sf = None,
+                   tf = None):
+        if not pos is None:
+            self.pos = pos
+        if not contrast is None:
+            self.contrast = contrast
+        if not tex is None:
+            self.tex = tex
+        if not mask is None:
+            self.mask = mask
+        if not size is None:
+            self.size = size
+        if not sf is None:
+            self.sf = sf
+        if not tf is None:
+            self.tf = tf
+        if is_rewarded:
+            self.ori = np.random.choice(self.go_ori,1)[0]
+        else:
+            self.ori = np.random.choice(self.nogo_ori,1)[0]
+        self.circle.phase += np.random.uniform(0,1) # random phase
+        self.circle.texRes = 2**8
+                    
+
+    def draw(self):
+        self.circle.ori = self.ori
+        self.circle.contrast = self.contrast
+        self.circle.size = self.size
+        self.circle.sf = self.sf
+        self.circle.draw()
+        
+        
+    def get_settings(self):
+        return dict(tex = self.tex,
+                    mask = self.mask,
+                    pos = self.pos,
+                    size = self.size,
+                    sf = self.sf,
+                    tf = self.tf,
+                    go_ori = self.go_ori,
+                    nogo_ori = self.nogo_ori,
+                    phase = self.phase)
+
 class GoNoGratingsOriTask(TaskBase):
     protocol_name = 'GoNoGratingsOri'
     nmax_trials = 3000
@@ -9,18 +98,21 @@ class GoNoGratingsOriTask(TaskBase):
                  preference_path = None,
                  reward_volume = 3,     
                  post_reward_duration = 2.5,  # time to collect reward
-                 response_period = 3,
+                 response_duration = 3,
                  timeout_duration = 2.5,
                  inter_trial_interval = [1,2],  # seconds (min - max)
-                 prob_left = 0.5,
+                 prob_go = 0.5,
                  audio_volume = 1,
                  visual_par = dict(go_ori = [90],
-                                   sf = 0.01,
-                                   tf = 0,
                                    nogo_ori = [0],
-                                   size = 300,
+                                   sf = 0.1,
+                                   tf = 0,
+                                   size = 40,
+                                   pos = [0,0],
                                    mask = 'circle',
-                                   duration = 2),
+                                   tex = 'sin',
+                                   duration = 2,
+                                   rand_phase = True),
                  trial_cue = dict(frequency=2000,
                                   duration=0.25),
                  reward_cue = dict(frequency=9000,
@@ -45,51 +137,44 @@ class GoNoGratingsOriTask(TaskBase):
         self.header = ['state',
                        'state_time',
                        'itrial',
-                       'iblock',
                        'trial_cue',
                        'reward_cue',
                        'punishment_cue']
         self.trial_frame_cnt = 0
         self.stimframe = -1
         self.audio_volume = audio_volume
-        self.block_par = block_par
-        self.prob_left = prob_left
+        self.visual_par = visual_par
+        self.prob_go = prob_go
         self.reward_volume =  reward_volume
         self.redraw_trials = True
-        self.isnewblock = True
-        self.block_par = block_par
         self.trial_cue = trial_cue
         self.reward_cue  = reward_cue
         self.punishment_cue = punishment_cue
         self.timeout_duration = timeout_duration
         self.inter_trial_interval = inter_trial_interval
         self.iti_duration = 1
-        self.response_period = response_period
+        self.response_duration = response_duration
         self.post_reward_duration = post_reward_duration
         
-        self.last_spout_counts = np.array([0, 0])
         self.trial = None
 
-        self._rewarded_idx = -1
-        self._wrong_idx = -1
-        
-        self.motors_par = motors_par
-
-        self.spout_counts = np.array([0,0])
+        self.last_spout_counts = 0
+        self.spout_counts = 0
         self.nlicks_to_reward = nlicks_to_reward
 
-        self.current_block_side = self.rand.choice(['right','left'])
-        self.block_count = 0          # count which block we are at
-        self.block_ntrials = 0
-        self.block_performance = 0
+        self.current_trial = self.rand.choice(['go','nogo'])
 
         self.last_trial_side = 0        
         self.task_trial_data = pd.DataFrame([])
         self.task_trial_settings = pd.DataFrame([])
+
+        self.task_stimulus = TaskStimulus(win = self.exp.windows[0],
+                                          **self.visual_par)
+        
         if not self.exp.gui is None and widget is None:
-            from .widget import DynamicForagingWidget,QDockWidget,Qt
-            self.widget = DynamicForagingWidget(self)
-            w = QDockWidget('DynamicForagingTask',self.exp.gui)
+            from .widget import GoNoGratingsOriWidget,QDockWidget,Qt
+            self.widget = GoNoGratingsOriWidget(self)
+            w = QDockWidget('GoNoGratingOriTask',self.exp.gui)
             w.setWidget(self.widget)
             self.exp.gui.addDockWidget(Qt.TopDockWidgetArea,w)
             self.widget.show()
@@ -128,104 +213,53 @@ class GoNoGratingsOriTask(TaskBase):
                                                 sampleRate = self.audio_rate,
                                                 volume = self.audio_volume,
                                                 stereo = -1)
-
+        self.draw_trials()
     def get_settings(self):
         return dict(reward_volume = self.reward_volume,     
                     post_reward_duration = self.post_reward_duration,
-                    response_period = self.response_period,
+                    response_duration = self.response_duration,
                     inter_trial_interval = list(self.inter_trial_interval), 
-                    motors_par = dict(self.motors_par),
                     trial_cue = dict(self.trial_cue),
                     reward_cue = dict(self.reward_cue),
                     punishment_cue = dict(self.punishment_cue),
-                    block_par = dict(self.block_par),
+                    visual_par = dict(self.visual_par),
                     audio_volume = self.audio_volume,
                     nlicks_to_reward = self.nlicks_to_reward,
                     background = self.background,
                     seed = self.seed)
 
     def draw_trials(self):
-
+        '''Redraw the trials if e.g. the reward probabilities change
+        '''
         if self.trial_list is None:
             self.trial_list = np.zeros(self.nmax_trials,dtype = np.uint8)
         # side of the stim
-        self.trial_list[self.itrial:] = np.array(self.rand.random(self.nmax_trials-self.itrial)>self.prob_left)
+        self.trial_list[self.itrial:] = np.array(self.rand.random(self.nmax_trials-self.itrial)>self.prob_go)
         self.redraw_trials = False
         
-    def evaluate_block_transition(self):
-        # check if we are in a new block
-        if self.block_ntrials > 4: # try to compute performance
-            sel = self.task_trial_data[self.task_trial_data.iblock == self.block_count]
-            sel = sel[(sel.rewarded.values == 1) | (sel.punished.values == 1)]
-            print(len(sel),flush=True)
-            mintrials = np.min(self.block_par['ntrials_exit_criteria'])
-            self.block_performance = np.nan
-            if len(sel) > mintrials: # only look at 15 trials in the block
-                sel = sel.iloc[int(-1*mintrials):]
-                self.block_performance = np.sum(sel.rewarded)/len(sel)
-            print('Block performance: {0}'.format(self.block_performance), flush = True)
-        
-        if ((self.block_performance > self.block_par['performance_exit']) and
-             (self.block_ntrials > self.min_trials_per_block)):
-            self.isnewblock = True
-        #end
-        if self.isnewblock:
-            self.min_trials_per_block =  self.rand.integers(*self.block_par['ntrials_exit_criteria'])
-            self.block_performance = 0
-            self.current_block_side = 'left' if self.current_block_side == 'right' else 'right' # switch sides
-            self.redraw_trials = True
-            self.block_count += 1 # count which block we are at
-            p = self.rand.choice(self.block_par['probabilities'])
-            self.prob_left = 1*p
-            if self.current_block_side == 'right':
-                self.prob_left = 1-self.prob_left
-            if not self.widget is None:
-                self.widget.pleft.spin.valueChanged.disconnect()
-                self.widget.pleft.spin.setValue(self.prob_left)
-                self.widget.pleft.link(self.widget._pleft)
-
-            self.isnewblock = False
-        #end
-        if self.redraw_trials:
-            self.draw_trials()
-        #end
-        self.block_ntrials += 1
 
     def trial_init(self):
         self.itrial += 1
         self.trial_frame_cnt = -1
-        self.evaluate_block_transition()
+        if self.redraw_trials:
+            self.draw_trials()
         self.lick_counter = None
         self.exp.trial_cnt = self.itrial
         self.exp.stim_cnt = int(self.trial_list[self.itrial]==0)
 
         trial_side = self.trial_list[self.itrial]==0
-        rewarded_side = 'left' if trial_side else 'right'
-        if (rewarded_side == 'left'):
-            self._rewarded_idx = 0
-            self._wrong_idx = 1
-            self.trial_cue['frequency'] = self.trial_cue['frequency_left']
-        elif (rewarded_side == 'right'):
-            self._rewarded_idx = 1
-            self._wrong_idx = 0
-            self.trial_cue['frequency'] = self.trial_cue['frequency_right']
+        trial_type = 'go' if trial_side else 'nogo'
+        self.task_stimulus.trial_init(is_rewarded = trial_side)
 
-        try: # in case it changed
-            self.response_duration = self.response_period[1]-self.response_period[0]
-        except:
-            display("Response period needs start and stop times.")
         self._generate_task_sounds()
         self.iti_duration = self.rand.uniform(low = self.inter_trial_interval[0],
                                               high=self.inter_trial_interval[1])
 
         self.pause = False
-        reward_volume = self.reward_volume[self._rewarded_idx]
+        reward_volume = self.reward_volume
         self.trial_info = dict(
             itrial = self.itrial,
-            rewarded_side = rewarded_side,
-            current_block_side = self.current_block_side,
             reward_volume = reward_volume,
-            min_trials_per_block = self.min_trials_per_block,
             trial_cue_frequency = self.trial_cue['frequency'],
             reward_cue_frequency = self.reward_cue['frequency'],
             trial_cue_duration = self.trial_cue['duration'],
@@ -233,26 +267,20 @@ class GoNoGratingsOriTask(TaskBase):
             punishment_cue_duration = self.punishment_cue['duration'],
             response_duration = self.response_duration,
             post_reward_duration = self.post_reward_duration,
-            iti_duration = self.iti_duration,
-            motors_pos_in = self.motors_par['position_in'],
-            motors_pos_out = self.motors_par['position_out'])
+            iti_duration = self.iti_duration)
         
         self.trial = dict(itrial = self.itrial,
-                          iblock = self.block_count,
-                          rewarded_side_index = 1 if rewarded_side == 'left' else -1,
+                          trial_type = trial_type,
+                          ori = self.task_stimulus.circle.ori,
                           task_states = [],
                           task_start_time = np.nan,
-                          block_performance = self.block_performance,
-                          block_side = self.current_block_side,
                           response_time = np.nan,
                           response = 0,
                           rewarded = 0,
                           punished = 0)
 
         if not self.rig is None:
-            self.rig.set_motors(*self.motors_par['position_out'])
-            self.rig.set_water_volume(valve0 = self.reward_volume[0],
-                                      valve1 = self.reward_volume[1])
+            self.rig.set_water_volume(valve0 = self.reward_volume)
 
         if not self.widget is None:
             self.widget.trial_init_update()
@@ -267,26 +295,25 @@ class GoNoGratingsOriTask(TaskBase):
         # check if the mouse licks multiple times
         if not self.lick_counter is None: # then there is a rig
             current_licks = self.spout_counts - self.lick_counter
-            if current_licks[self._rewarded_idx] >= self.nlicks_to_reward and current_licks[self._wrong_idx] < self.nlicks_to_reward:
+            if current_licks >= self.nlicks_to_reward and self.trial['trial_type'] == 'go':
                 #reward!
-                self._give_reward(self._rewarded_idx)
-                self._move_wrong_spout()
+                self._give_reward(0)
+                #self._move_wrong_spout()
                 self.rewarded_trial = True
                 self.trial['response_time'] = self.trial_clock.getTime()
-                self.trial['response'] = 1 if self._rewarded_idx == 0 else -1
+                self.trial['response'] = 1 
                 self.trial['rewarded'] = 1
                 self.play_sound([self.reward_sound])
                 self.set_state('post_reward')
-            elif current_licks[self._wrong_idx] >= self.nlicks_to_reward: 
+            elif current_licks >= self.nlicks_to_reward and self.trial['trial_type'] == 'nogo':
                 self.trial['response_time'] = self.trial_clock.getTime()
-                self.trial['response'] = -1 if self._rewarded_idx == 0 else 1
-                self.rig.set_motors(*self.motors_par['position_out'])
+                self.trial['response'] = -1 
                 self.play_sound([self.punishment_sound])
                 self.set_state('timeout')
         if statetime >= self.response_duration: # no response
-            motorpos = [*self.motors_par['position_out']]
-            if not self.rig is None:
-                self.rig.set_motors(*motorpos)
+            # then its nogo
+            self.trial['response_time'] = np.nan
+            self.trial['response'] = 0
             self.set_state('iti')
 
             
@@ -294,7 +321,6 @@ class GoNoGratingsOriTask(TaskBase):
         tolog = [self.state,          # state
                  statetime,           # statetime
                  self.itrial,         # trial number
-                 self.block_count,    # iblock
                  None,                # trial_cue
                  None,                # reward_cue
                  None]                # punishment_cue 
@@ -304,8 +330,12 @@ class GoNoGratingsOriTask(TaskBase):
             code = 1
             if statetime >= self.trial_cue['duration']:
                 tolog[-3] = 1
-                self.set_state('response')
+                self.set_state('stim')
+        elif self.state in ['stim']: 
+            self.task_stimulus.draw()
+            if statetime >= self.visual_par['duration']:
                 self._start_lick_counter()
+                self.set_state('response')
         elif self.state in ['response']: 
             self._handle_response(statetime)
         elif self.state in ['post_reward']:
@@ -313,8 +343,6 @@ class GoNoGratingsOriTask(TaskBase):
                 tolog[-2] = 1
             self.trial['rewarded'] = 1
             if statetime >= self.post_reward_duration:
-                if not self.rig is None:
-                    self.rig.set_motors(*self.motors_par['position_out'])
                 self.set_state('iti')
                 self.exp.parse_remotes('trial_end')  # send that trial ended
         elif self.state in ['timeout']:
@@ -352,8 +380,7 @@ class GoNoGratingsOriTask(TaskBase):
         code = 0
         self.trial_frame_cnt += 1
         if not self.rig is None:
-            self.spout_counts = np.array([self.rig.lick0['counter'].value,
-                                          self.rig.lick1['counter'].value])
+            self.spout_counts = np.array([self.rig.lick0['counter'].value])
         
         statetime = self.state_clock.getTime()
         if self.state is None and not self.pause:
@@ -385,15 +412,11 @@ class GoNoGratingsOriTask(TaskBase):
         return c, log               
 
 
-    def _start_lick_counter(self, no_motor_motion=False):
+    def _start_lick_counter(self):
         self.lick_counter = None
         self.rewarded_trial = False
         if not self.rig is None:
-            if not no_motor_motion:
-                motorpos = [*self.motors_par['position_in']]
-                self.rig.set_motors(*motorpos)                
-            self.lick_counter = np.array([self.rig.lick0['counter'].value,
-                                          self.rig.lick1['counter'].value])
+            self.lick_counter = np.array([self.rig.lick0['counter'].value])
 
     def stop(self):
         self.stop_sound()
@@ -461,16 +484,6 @@ class GoNoGratingsOriTask(TaskBase):
         
         self._saved_data=True
         
-    def _move_wrong_spout(self):
-        if not self.rig is None:
-            M1,M2 = self.motors_par['position_in']
-            M1o,M2o = self.motors_par['position_out']
-            if self._wrong_idx == 1:#(self.trial_info['rewarded_side'] == 'left'):
-                M2 = M2o
-            else:
-                M1 = M1o
-            self.rig.set_motors(M1,M2)
-
     def _give_reward(self,rewarded_idx, flipandwait=False):
         if not self.rig is None:
             self.rig.give_water(rewarded_idx)

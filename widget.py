@@ -6,7 +6,6 @@ class GoNoGratingsOriWidget(QWidget):
         super(GoNoGratingsOriWidget,self).__init__()
         self.task = task
         self.rig = task.rig
-        self.motors_par = self.task.motors_par
         lay = QGridLayout()
         self.setLayout(lay)
         self.tmaxpsychplot = 15*60 # seconds
@@ -19,104 +18,39 @@ class GoNoGratingsOriWidget(QWidget):
         l.addWidget(self.canvas)
         self.canvas_widget.setLayout(l)
         self._init_figure()
-        ####################MOTORS######################
-        w = QGroupBox('Motor control')
-        #l = QFormLayout(w)
-        l = QGridLayout(w)
-        w.setLayout(l)
-        mout0 = WidQInt(label = 'Left out',
-                        value = int(self.task.motors_par['position_out'][0]),
-                        vmin = -30,
-                        vmax = 30)
-        def _out():
-            self.rig.set_motors(*self.task.motors_par['position_out'])
-        def _in():
-            self.rig.set_motors(*self.task.motors_par['position_in'])
-        def _mout0():
-            self.task.motors_par['position_out'][0] = mout0.val()
-            _out()
-        mout0.link(_mout0)
-        mout1 = WidQInt(label = 'Right out',
-                        value = int(self.task.motors_par['position_out'][1]),
-                        vmin = -30,
-                        vmax = 30)
-        def _mout1():
-            self.task.motors_par['position_out'][1] = mout1.val()
-            _out()
-        mout1.link(_mout1)
-        
-        l.addWidget(mout0,0,0,1,1)
-        l.addWidget(mout1,0,1,1,1)
-        min0 = WidQInt(label = 'Left in',
-                        value = int(self.task.motors_par['position_in'][0]),
-                        vmin = -30,
-                        vmax = 30)
-        def _min0():
-            self.task.motors_par['position_in'][0] = min0.val()
-            _in()
-            
-        min0.link(_min0)
-        min1 = WidQInt(label = 'Right in',
-                        value = int(self.task.motors_par['position_in'][1]),
-                        vmin = -30,
-                        vmax = 30)
-        def _min1():
-            self.task.motors_par['position_in'][1] = min1.val()
-            _in()
-        min1.link(_min1)
-        l.addWidget(min0,1,0,1,1)
-        l.addWidget(min1,1,1,1,1)
-        
-        m_out = QPushButton('out')
-        
-        m_in = QPushButton('in')
-        
-        m_in.clicked.connect(_in)
-        m_out.clicked.connect(_out)
-        l.addWidget(m_in,2,0,1,1)
-        l.addWidget(m_out,2,1,1,1)
-
         ####################REWARD######################
         r = QGroupBox('Spouts - Reward')
         l = QFormLayout(r)
         r.setLayout(l)
         rewardvol = WidQFloat(label = 'Reward volume',
-                              value = self.task.reward_volume[0],
+                              value = self.task.reward_volume,
                               vmin = 0.5,
-                              vmax = 6)
+                              vmax = 20)
         rewardvol.spin.setSingleStep(0.1)
         def _rewardvol():
-            self.task.reward_volume = [float(rewardvol.val())]*2
+            self.task.reward_volume = float(rewardvol.val())
             if not self.task.rig is None:
                 # button gives only a fraction of the reward
                 frac = 0.6
-                self.rig.set_water_volume(valve0 = self.task.reward_volume[0]*frac,
-                                          valve1 = self.task.reward_volume[1]*frac)
+                self.rig.set_water_volume(valve0 = self.task.reward_volume[0]*frac)
         rewardvol.link(_rewardvol)
-        reward_left = QPushButton('Left')
-        reward_left.resize(40,20)
-        def _rewardleft():
+        reward = QPushButton('reward')
+        reward.resize(40,20)
+        def _reward():
             _rewardvol()
             self.task._give_reward(0,flipandwait=True)
-        reward_right = QPushButton('Right')
-        reward_right.resize(40,20)
-        def _rewardright():
-            _rewardvol()
-            self.task._give_reward(1,flipandwait=True)
-        reward_right.clicked.connect(_rewardright)
-        reward_left.clicked.connect(_rewardleft)
+        reward.clicked.connect(_reward)
         
-        l.addRow(reward_left,reward_right)
+        l.addRow(reward)
         l.addRow(rewardvol)
         
-        lay.addWidget(w,0,0,1,1)
-        lay.addWidget(r,1,0,1,1)
+        lay.addWidget(r,0,0,1,1)
 
         ####################TASK######################
         w = QGroupBox('Task settings')
         l = QFormLayout()
         w.setLayout(l)
-        lay.addWidget(w,0,1,2,1)
+        lay.addWidget(w,1,0,1,1)
             
         self.wstate = QLabel('')
         l.addRow(self.wstate)
@@ -131,18 +65,15 @@ class GoNoGratingsOriWidget(QWidget):
         p.setLayout(pp)
         pp.addRow(QLabel('Pause'),pause)
         # probability left
-        self.pleft = WidQFloat(label = 'Prob left',
-                               value = self.task.prob_left,
-                               vmin = 0,
-                               vmax = 1)
-        self.pleft.spin.setSingleStep(0.1)
-        self.pleft.link(self._pleft)
-        l.addRow(p, self.pleft)
+        self.pgo = WidQFloat(label = 'Prob go',
+                             value = self.task.prob_go,
+                             vmin = 0,
+                             vmax = 1)
+        self.pgo.spin.setSingleStep(0.1)
+        self.pgo.link(self._pgo)
+        l.addRow(p, self.pgo)
         
-        self.settings = dict(block_exit_ntrials = "block_par['ntrials_exit_criteria']",
-                             block_exit_performance = "block_par['performance_exit']",
-                             block_probabilities = "block_par['probabilities']",
-                             inter_trial_interval = "inter_trial_interval",
+        self.settings = dict(inter_trial_interval = "inter_trial_interval",
                              response_period = "response_period",
                              post_reward_duration = "post_reward_duration",
                              nlicks_to_reward = "nlicks_to_reward",
@@ -185,13 +116,13 @@ class GoNoGratingsOriWidget(QWidget):
                 
         l.addRow(settingwid)
         l.addRow(QLabel('Setting values:'),settingedit)
-    def _pleft(self):
-        self.task.prob_left = self.pleft.val()
+    def _pgo(self):
+        self.task.prob_go = self.pgo.val()
         self.task.redraw_trials = True
 
     def set_state(self,state):
-        self.wstate.setText('state: <b> {0} </b> - trial time: {1:.3f}s - <b>{2}</b>'.format(
-            state, self.task.trial_clock.getTime(),self.task.current_block_side))
+        self.wstate.setText('state: <b> {0} </b> - trial time: {1:.3f}s '.format(
+            state, self.task.trial_clock.getTime()))
         
     def trial_init_update(self):
         m = np.max([0,self.task.itrial-self.ntrialstoplot])
@@ -225,29 +156,6 @@ class GoNoGratingsOriWidget(QWidget):
         
             ntotal = len(self.task.task_trial_data)
             self.pntrials['all'].set_height(ntotal)
-            # left
-            ileft = np.where(sel.rewarded_side_index.values == 1)
-            selleft = sel.iloc[ileft]
-            left_n = np.sum(selleft.response == 0)
-            left_r = np.sum(selleft.response == 1)
-            left_p = np.sum(selleft.response == -1)
-            self.pntrials['left_p'].set_height(left_p)
-            self.pntrials['left_p'].set_y(0)
-            self.pntrials['left_n'].set_height(left_n)
-            self.pntrials['left_n'].set_y(left_p)
-            self.pntrials['left_r'].set_height(left_r)
-            self.pntrials['left_r'].set_y(left_n+left_p)            
-            iright = np.where(sel.rewarded_side_index.values == -1)
-            selright = sel.iloc[iright]
-            right_n = np.sum(selright.response == 0)
-            right_r = np.sum(selright.response == -1)
-            right_p = np.sum(selright.response == 1)
-            self.pntrials['right_p'].set_height(right_p)
-            self.pntrials['right_p'].set_y(0)
-            self.pntrials['right_n'].set_height(right_n)
-            self.pntrials['right_n'].set_y(right_p)
-            self.pntrials['right_r'].set_height(right_r)
-            self.pntrials['right_r'].set_y(right_n+right_p)
                            
             if len(sel) >= 2:
                 # select only the last n seconds
@@ -287,15 +195,15 @@ class GoNoGratingsOriWidget(QWidget):
         self.h['axpsych'].set_ylim([0,1])
 
         
-        self.ppsych = {'block' : self.h['axpsych'].plot([],[],'.--',
+        self.ppsych = {'trial' : self.h['axpsych'].plot([],[],'.--',
                                                          clip_on = False,
                                                          color=colors[0])[0],
                        'total' : self.h['axpsych'].plot([],[],'.--',
                                                         clip_on = False,
                                                         color=colors[1])[0]}
-        self.h['axpsych'].legend([self.ppsych['block'],
+        self.h['axpsych'].legend([self.ppsych['trial'],
                                   self.ppsych['total']],
-                                 ['blk','all'],fontsize='x-small',
+                                 ['trial','all'],fontsize='x-small',
                                  frameon=False,fancybox=True, framealpha=0.5)
         
         self.h['axntrials'] = self.h['fig'].add_axes([0.7,0.2,0.2,0.5])
