@@ -74,11 +74,18 @@ class GoNoGratingsOriWidget(QWidget):
         l.addRow(p, self.pgo)
         
         self.settings = dict(inter_trial_interval = "inter_trial_interval",
+                             visual_tf = "visual_par['tf']",
+                             visual_sf = "visual_par['sf']",
+                             visual_size = "visual_par['size']",
+                             go_orientation = "visual_par['go_ori']",
+                             nogo_orientation = "visual_par['nogo_ori']",
                              response_period = "response_period",
                              post_reward_duration = "post_reward_duration",
                              nlicks_to_reward = "nlicks_to_reward",
                              audio_volume = "audio_volume",
                              punishment_duration = "punishment_cue['duration']",
+                             timeout_duration = "timeout_duration",
+                             auto_reward_fraction = "auto_reward_prob",
                              trial_cue_frequency = "trial_cue['frequency']",
                              trial_cue_duration = "trial_cue['duration']",
                              reward_cue_frequency = "reward_cue['frequency']",

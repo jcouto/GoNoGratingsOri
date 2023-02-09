@@ -7,13 +7,14 @@ class TaskStimulus(object):
                  mask = 'circle',
                  contrast = 1,
                  pos=[0,0],
-                 size=40,
+                 size=20,
                  sf = 0.2,
                  tf = 0,
-                 go_ori = [90],
-                 nogo_ori = [0],
+                 go_ori = [90,45],
+                 nogo_ori = [0,270],
                  units = 'deg',
                  rand_phase = True,
+                 refresh_rate = 60,
                  **kwargs):
             '''This class is to abstract the stimulus. 
     Use it to build a go or no-go stim.
@@ -28,6 +29,7 @@ class TaskStimulus(object):
             self.tf = tf
             self.units = units
             self.contrast = contrast
+            self.refresh_rate = refresh_rate
             self.circle = GratingStim(win = win,
                                       tex = tex,
                                       mask = mask,
@@ -47,7 +49,8 @@ class TaskStimulus(object):
                    pos = None,
                    size = None,
                    sf = None,
-                   tf = None):
+                   tf = None,
+                   **kwargs):
         if not pos is None:
             self.pos = pos
         if not contrast is None:
@@ -75,6 +78,8 @@ class TaskStimulus(object):
         self.circle.contrast = self.contrast
         self.circle.size = self.size
         self.circle.sf = self.sf
+        if self.tf > 0:
+            self.circle.phase += self.tf/self.refresh_rate
         self.circle.draw()
         
         
@@ -99,14 +104,15 @@ class GoNoGratingsOriTask(TaskBase):
                  reward_volume = 3,     
                  post_reward_duration = 2.5,  # time to collect reward
                  response_duration = 3,
-                 timeout_duration = 2.5,
-                 inter_trial_interval = [1,2],  # seconds (min - max)
+                 timeout_duration = 4,
+                 inter_trial_interval = [2,4],  # seconds (min - max)
                  prob_go = 0.5,
+                 auto_reward_prob = 0,
                  audio_volume = 1,
-                 visual_par = dict(go_ori = [90],
-                                   nogo_ori = [0],
+                 visual_par = dict(go_ori = [90,45],
+                                   nogo_ori = [0,270],
                                    sf = 0.1,
-                                   tf = 0,
+                                   tf = 4,
                                    size = 40,
                                    pos = [0,0],
                                    mask = 'circle',
@@ -145,6 +151,7 @@ class GoNoGratingsOriTask(TaskBase):
         self.audio_volume = audio_volume
         self.visual_par = visual_par
         self.prob_go = prob_go
+        self.auto_reward_prob = auto_reward_prob
         self.reward_volume =  reward_volume
         self.redraw_trials = True
         self.trial_cue = trial_cue
@@ -169,6 +176,7 @@ class GoNoGratingsOriTask(TaskBase):
         self.task_trial_settings = pd.DataFrame([])
 
         self.task_stimulus = TaskStimulus(win = self.exp.windows[0],
+                                          refresh_rate = self.exp.refresh_rate,
                                           **self.visual_par)
         
         if not self.exp.gui is None and widget is None:
@@ -218,6 +226,7 @@ class GoNoGratingsOriTask(TaskBase):
         return dict(reward_volume = self.reward_volume,     
                     post_reward_duration = self.post_reward_duration,
                     response_duration = self.response_duration,
+                    timeout_duration = self.timeout_duration,
                     inter_trial_interval = list(self.inter_trial_interval), 
                     trial_cue = dict(self.trial_cue),
                     reward_cue = dict(self.reward_cue),
@@ -226,6 +235,7 @@ class GoNoGratingsOriTask(TaskBase):
                     audio_volume = self.audio_volume,
                     nlicks_to_reward = self.nlicks_to_reward,
                     background = self.background,
+                    auto_reward_prob = self.auto_reward_prob,
                     seed = self.seed)
 
     def draw_trials(self):
@@ -249,12 +259,13 @@ class GoNoGratingsOriTask(TaskBase):
 
         trial_side = self.trial_list[self.itrial]==0
         trial_type = 'go' if trial_side else 'nogo'
-        self.task_stimulus.trial_init(is_rewarded = trial_side)
+        self.task_stimulus.trial_init(is_rewarded = trial_side,**self.visual_par)
 
         self._generate_task_sounds()
         self.iti_duration = self.rand.uniform(low = self.inter_trial_interval[0],
                                               high=self.inter_trial_interval[1])
-
+        # check auto-reward condition
+        is_autorewarded = self.rand.random(1) < self.auto_reward_prob
         self.pause = False
         reward_volume = self.reward_volume
         self.trial_info = dict(
@@ -267,7 +278,8 @@ class GoNoGratingsOriTask(TaskBase):
             punishment_cue_duration = self.punishment_cue['duration'],
             response_duration = self.response_duration,
             post_reward_duration = self.post_reward_duration,
-            iti_duration = self.iti_duration)
+            iti_duration = self.iti_duration,
+            auto_reward_prob = self.auto_reward_prob)
         
         self.trial = dict(itrial = self.itrial,
                           trial_type = trial_type,
@@ -277,7 +289,8 @@ class GoNoGratingsOriTask(TaskBase):
                           response_time = np.nan,
                           response = 0,
                           rewarded = 0,
-                          punished = 0)
+                          punished = 0,
+                          auto_reward = is_autorewarded)
 
         if not self.rig is None:
             self.rig.set_water_volume(valve0 = self.reward_volume)
@@ -326,31 +339,38 @@ class GoNoGratingsOriTask(TaskBase):
                  None]                # punishment_cue 
         # check for reward if the reward period is ON
         code = 0
-        if self.state in ['trial_start']:
+        if self.state in ['trial_start']:   # the first state
             code = 1
             if statetime >= self.trial_cue['duration']:
                 tolog[-3] = 1
                 self.set_state('stim')
-        elif self.state in ['stim']: 
+        elif self.state in ['stim']:    # present the stim
             self.task_stimulus.draw()
             if statetime >= self.visual_par['duration']:
                 self._start_lick_counter()
-                self.set_state('response')
-        elif self.state in ['response']: 
+                if self.trial['auto_reward']:
+                    if self.trial['trial_type'] == 'go':
+                        self.set_state('post_reward')
+                        self._give_reward(0) # give water and jump to post_reward state
+                    else:
+                        self.set_state('iti')
+                else:
+                    self.set_state('response')
+        elif self.state in ['response']:  # waits to see if the mouse licks
             self._handle_response(statetime)
-        elif self.state in ['post_reward']:
+        elif self.state in ['post_reward']: # give reward 
             if statetime <= self.reward_cue['duration']:
                 tolog[-2] = 1
             self.trial['rewarded'] = 1
-            if statetime >= self.post_reward_duration:
+            if statetime >= self.post_reward_duration: # go to the next trial
                 self.set_state('iti')
                 self.exp.parse_remotes('trial_end')  # send that trial ended
-        elif self.state in ['timeout']:
+        elif self.state in ['timeout']:  # punishment?
             self.trial['punished'] = 1
             if statetime <= self.punishment_cue['duration']:
                 tolog[-1] = 1
             if statetime >= self.timeout_duration:
-                self.set_state('iti')
+                self.set_state('iti') 
                 self.exp.parse_remotes('trial_end')  # send that trial ended
         elif self.state in ['iti']:
             self._handle_iti(statetime)
